@@ -2,10 +2,10 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>swarm replay — slow-mo (0.5x, native refresh)</title>
+<title>swarm replay — pure JS recreation of swarm.swf (no menu)</title>
 <style>
-html,body{margin:0;height:100%;background:#000;overflow:hidden}
-canvas{display:block;width:100vw;height:100vh;object-fit:cover;image-rendering:auto}
+html,body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center}
+canvas{width:min(100vw,150vh);height:auto;image-rendering:auto}
 </style>
 </head>
 <body>
@@ -15,10 +15,8 @@ canvas{display:block;width:100vw;height:100vh;object-fit:cover;image-rendering:a
 /* Faithful JS recreation of swarm.swf (toolband 2006) from decompiled AS2.
    Kept: SeasonSwarm (23 comet trails), Random_Fireflies (24 fireflies + 1 ember),
          Random_Wireframe (30 static shape pairs).
-    Dropped: center #111 100x100 logo block, 4 nav buttons (TOOLBAND/TOOLARMY/
-    DISSECTIONAL/copyright), hotSpot, sounds, fullscreen fscommand.
-    Slow-mo edition: all per-frame velocities are time-scaled (k = dt * 31 * SLOW)
-    and rendered at the display's native refresh rate instead of a 31fps cap. */
+   Dropped: center #111 100x100 logo block, 4 nav buttons (TOOLBAND/TOOLARMY/
+   DISSECTIONAL/copyright), hotSpot, sounds, fullscreen fscommand. */
 
 const W = 720, H = 480;
 const TWO_PI = 6.283185307179586;
@@ -32,8 +30,6 @@ const rand = n => Math.floor(Math.random() * n);            // AS2 random(n)
 const fixAngle = a => { while (a > TWO_PI) a -= TWO_PI; while (a < 0) a += TWO_PI; return a; };
 const constrain = (v, lo, hi) => Math.round(Math.max(lo, Math.min(hi, v)));
 const D2R = Math.PI / 180;
-const FPS_BASE = 31;   // SWF native fps — the time base all per-frame velocities were authored at
-const SLOW = 0.5;      // playback speed (1 = original, 0.5 = half speed)
 
 /* ---------- assets (inline, tinted like AS2 Color.setRGB: pixel * tint/255) ---------- */
 const B64 = {
@@ -92,7 +88,6 @@ class SeasonSwarm {
       return grad;
     });
     this.leaderTime = this.leaderRunTime;
-    this.tailLife = (this.swarmTailSize / FPS_BASE) / SLOW;   // real seconds a trail point lives (slows with playback)
     this.leaderX = Math.random() * W;
     this.leaderY = Math.random() * H;
     this.leaderRot = Math.random() * TWO_PI;
@@ -106,13 +101,12 @@ class SeasonSwarm {
       swarm.isSkinny = rand(3) == 0;
       swarm.maxThick = rand(20) + 20;
       const x = Math.random() * W, y = Math.random() * H;   // AS2 random(n) float here
-      const t0 = performance.now() / 1000;
-      for (let j = 0; j < this.swarmTailSize; j++) swarm.posList.push({ x, y, t: t0 });
+      for (let j = 0; j < this.swarmTailSize; j++) swarm.posList.push({ x, y });
       this.swarmList.push(swarm);
     }
   }
-  drawFrame(k, t) {
-    if (this.leaderTime <= 0) {
+  drawFrame() {
+    if (this.leaderTime == 0) {
       this.goalX = Math.random() * W;
       this.goalY = Math.random() * H;
       this.leaderTime = this.leaderRunTime;
@@ -121,11 +115,11 @@ class SeasonSwarm {
        Constant turn rate + constant speed => circular arcs (r = speed/omega): the "spiral". */
     let goalAngle = Math.atan2(this.goalY - this.leaderY, this.goalX - this.leaderX); // NaN while goal unset (first 20 frames)
     goalAngle = fixAngle(goalAngle - this.leaderRot);
-    if (goalAngle < Math.PI) this.leaderRot += this.leaderRotSpeed * k;
-    else this.leaderRot -= this.leaderRotSpeed * k;
-    this.leaderX += Math.cos(this.leaderRot) * this.leaderSpeed * k;
-    this.leaderY += Math.sin(this.leaderRot) * this.leaderSpeed * k;
-    this.leaderTime -= k;
+    if (goalAngle < Math.PI) this.leaderRot += this.leaderRotSpeed;
+    else this.leaderRot -= this.leaderRotSpeed;
+    this.leaderX += Math.cos(this.leaderRot) * this.leaderSpeed;
+    this.leaderY += Math.sin(this.leaderRot) * this.leaderSpeed;
+    this.leaderTime--;
 
     for (let i = 0; i < this.numSwarm; i++) {
       const swarm = this.swarmList[i];
@@ -133,29 +127,24 @@ class SeasonSwarm {
       const x0 = swarm.posList[0].x, y0 = swarm.posList[0].y;
       let a = Math.atan2(this.leaderY - y0, this.leaderX - x0);
       a = fixAngle(a - swarm.rot);
-      if (a < Math.PI) swarm.rot += this.swarmRotSpeed * k;
-      else swarm.rot -= this.swarmRotSpeed * k;
-      swarm.rot += (Math.random() * this.swarmTwitch - Math.floor(this.swarmTwitch / 2)) * k; // [0,40deg) positive bias, time-scaled
-      const x = x0 + Math.cos(swarm.rot) * this.swarmSpeed * k;
-      const y = y0 + Math.sin(swarm.rot) * this.swarmSpeed * k;
-      swarm.posList.unshift({ x, y, t });
-      while (swarm.posList.length > 1 && swarm.posList[swarm.posList.length - 1].t < t - this.tailLife)
-        swarm.posList.pop();
+      if (a < Math.PI) swarm.rot += this.swarmRotSpeed;
+      else swarm.rot -= this.swarmRotSpeed;
+      swarm.rot += Math.random() * this.swarmTwitch - Math.floor(this.swarmTwitch / 2); // [0,40deg) positive bias
+      const x = x0 + Math.cos(swarm.rot) * this.swarmSpeed;
+      const y = y0 + Math.sin(swarm.rot) * this.swarmSpeed;
+      swarm.posList.pop();
+      swarm.posList.unshift({ x, y });
 
       /* draw trail (inverse branch, as in SWF): tail->head, width peaks mid-trail,
-         color fades base(head) -> endColor 0x000024 (tail).
-         Trail length is time-based, so width/color profiles are normalized over the
-         actual point count to keep the same spatial shape as the SWF. */
-      const pts = swarm.posList, n = pts.length;
-      const midPoint = Math.floor(n / 2);
+         color fades base(head) -> endColor 0x000024 (tail) */
+      const midPoint = Math.floor(this.swarmTailSize / 2);
       const thickStep = swarm.maxThick / midPoint;
-      let prev = pts[n - 1];
-      for (let j = n - 2; j > -1; j--) {
-        const pt = pts[j];
+      let prev = swarm.posList[this.swarmTailSize - 1];
+      for (let j = this.swarmTailSize - 2; j > -1; j--) {
+        const pt = swarm.posList[j];
         let w = swarm.isSkinny ? 0 : thickStep * (midPoint - 2 - Math.abs(j - midPoint));
         w = w > 0 ? w : 1;                                   // Flash hairline for width<=0
-        const ci = Math.round(j / (n - 1) * (this.swarmTailSize - 1));
-        ctx.strokeStyle = '#' + (swarmColor[ci] >>> 0).toString(16).padStart(6, '0');
+        ctx.strokeStyle = '#' + (swarmColor[j] >>> 0).toString(16).padStart(6, '0');
         ctx.lineWidth = w;
         ctx.beginPath();
         ctx.moveTo(prev.x, prev.y);
@@ -193,23 +182,22 @@ class RandomFireflies {
       this.items.push(clip);
     }
   }
-  drawFrame(k) {
-    const fric = 1 - Math.pow(1 - this.assetFriction, k);   // time-corrected exponential chase
+  drawFrame(sprites) {
     for (const clip of this.items) {
       const m = clip.marker, randomMove = this.assetVibration;
-      let xPos = (Math.random() * randomMove - randomMove / 2) * k;
-      let yPos = (Math.random() * randomMove - randomMove / 2) * k;
-      if (xPos >= 0) xPos += k;
-      if (yPos >= 0) yPos += k;
-      if (m.x <= 0) xPos = Math.random() * randomMove * k;
-      else if (m.x >= W) xPos = -Math.random() * randomMove * k;
-      if (m.y <= 0) yPos = Math.random() * randomMove * k;
-      else if (m.y >= H) yPos = -Math.random() * randomMove * k;
+      let xPos = Math.random() * randomMove - randomMove / 2;
+      let yPos = Math.random() * randomMove - randomMove / 2;
+      if (xPos >= 0) xPos++;
+      if (yPos >= 0) yPos++;
+      if (m.x <= 0) xPos = Math.random() * randomMove;
+      else if (m.x >= W) xPos = -Math.random() * randomMove;
+      if (m.y <= 0) yPos = Math.random() * randomMove;
+      else if (m.y >= H) yPos = -Math.random() * randomMove;
       m.x += xPos; m.y += yPos;
-      clip.x -= (clip.x - m.x) * fric;
-      clip.y -= (clip.y - m.y) * fric;
+      clip.x -= (clip.x - m.x) * this.assetFriction;
+      clip.y -= (clip.y - m.y) * this.assetFriction;
       ctx.globalAlpha = clip.alpha / 100;
-      drawSprite(clip.sprite, clip.x, clip.y, clip.rot, clip.scale);
+      drawSprite(clip.sprite || sprites[clip.name], clip.x, clip.y, clip.rot, clip.scale);
       ctx.globalAlpha = 1;
     }
   }
@@ -268,8 +256,9 @@ const wireBig = new RandomWireframe({ numElements: 5, outlineList: ['out01', 'ou
 const wireSmall = new RandomWireframe({ numElements: 25, outlineList: ['out01', 'out02'], fillList: ['in01', 'in02'],
   baseRot: 0, rotRange: 360, minScale: 100, maxScale: 250, minAlpha: 100, maxAlpha: 100 });
 
-/* ---------- main loop: render at native refresh, sim time-scaled from 31fps base ---------- */
-let sprites, last = 0;
+/* ---------- main loop: SWF runs at 31 fps ---------- */
+const FPS = 31;
+let sprites, last = 0, acc = 0;
 Promise.all(Object.entries(B64).map(([k, v]) => loadImg(v).then(img => [k, img])))
   .then(pairs => {
     sprites = Object.fromEntries(pairs);
@@ -283,20 +272,18 @@ Promise.all(Object.entries(B64).map(([k, v]) => loadImg(v).then(img => [k, img])
   });
 function tick(now) {
   requestAnimationFrame(tick);
-  if (!last) { last = now; return; }
-  const dt = Math.min((now - last) / 1000, 0.1);   // seconds, clamped after tab switches
-  last = now;
-  const k = dt * FPS_BASE * SLOW;                  // sim steps this frame (0.5x at 31fps => 0.5)
-  const t = now / 1000;
+  acc += now - last; last = now;
+  if (acc < 1000 / FPS) return;
+  acc = Math.min(acc - 1000 / FPS, 1000 / FPS);
   ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, W, H);
   wireBig.draw(sprites);        // static layer, drawn once per frame (SWF: static clips)
   wireSmall.draw(sprites);
-  swarm.drawFrame(k, t);        // clears its own area in Flash; here trails only
-  firefliesA.drawFrame(k);
-  firefliesB.drawFrame(k);
-  firefliesC.drawFrame(k);
-  ember.drawFrame(k);
+  swarm.drawFrame();            // clears its own area in Flash; here trails only
+  firefliesA.drawFrame();
+  firefliesB.drawFrame();
+  firefliesC.drawFrame();
+  ember.drawFrame();
 }
 </script>
 </body>
